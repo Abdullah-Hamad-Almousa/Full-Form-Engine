@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+.env
+.env.*
+*.log
+.git
+.gitignore
+Dockerfile*
+README.md
+**/*.test.ts
+**/*.spec.ts
+src/test
+tests
+vitest.config.ts
+tsconfig.test.json

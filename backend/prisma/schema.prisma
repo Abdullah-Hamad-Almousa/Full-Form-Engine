@@ -1,0 +1,194 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  WORKER
+  MANAGER
+  ADMIN
+}
+
+enum FormStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum InputType {
+  TEXT
+  TEXTAREA
+  NUMBER
+  DATE
+  TIME
+  DATETIME
+  SELECT
+  MULTI_SELECT
+  CHECKBOX
+  BOOLEAN
+}
+
+model User {
+  id                String                @id @default(cuid())
+  name              String
+  username          String                @unique
+  email             String?               @unique
+  passwordHash      String                @map("password_hash")
+  role              Role                  @default(WORKER)
+  managerId         String?               @map("manager_id")
+  active            Boolean               @default(true)
+  manager           User?                 @relation("ManagerWorkers", fields: [managerId], references: [id])
+  workers           User[]                @relation("ManagerWorkers")
+  fieldAssignments  UserFieldAssignment[]
+  submissions       Submission[]          @relation("SubmissionOwner")
+  confirmedSubmissions Submission[]        @relation("SubmissionConfirmer")
+  createdFormVersions FormVersion[]        @relation("FormVersionCreator")
+  actorAuditLogs    AuditLog[]             @relation("AuditActor")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+
+  @@index([managerId])
+  @@map("users")
+}
+
+model FieldModule {
+  id           String                @id @default(cuid())
+  name         String
+  slug         String                @unique
+  description  String?
+  icon         String?
+  displayOrder Int                   @default(0) @map("display_order")
+  active       Boolean               @default(true)
+  assignments  UserFieldAssignment[]
+  formVersions FormVersion[]
+  submissions  Submission[]
+  auditLogs    AuditLog[]
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+
+  @@map("field_modules")
+}
+
+model UserFieldAssignment {
+  id            String      @id @default(cuid())
+  userId        String      @map("user_id")
+  fieldModuleId String      @map("field_module_id")
+  canSubmit     Boolean     @default(true) @map("can_submit")
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fieldModule   FieldModule @relation(fields: [fieldModuleId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@unique([userId, fieldModuleId])
+  @@index([fieldModuleId])
+  @@map("user_field_assignments")
+}
+
+model FormVersion {
+  id            String       @id @default(cuid())
+  fieldModuleId String       @map("field_module_id")
+  versionNumber Int          @map("version_number")
+  status        FormStatus   @default(DRAFT)
+  publishedAt   DateTime?    @map("published_at")
+  createdById   String       @map("created_by_id")
+  fieldModule   FieldModule  @relation(fields: [fieldModuleId], references: [id])
+  createdBy     User         @relation("FormVersionCreator", fields: [createdById], references: [id])
+  fields        FormField[]
+  submissions   Submission[]
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  @@unique([fieldModuleId, versionNumber])
+  @@index([fieldModuleId, status])
+  @@index([createdById])
+  @@map("form_versions")
+}
+
+model FormField {
+  id             String        @id @default(cuid())
+  formVersionId  String        @map("form_version_id")
+  fieldKey       String        @map("field_key")
+  label          String
+  inputType      InputType     @map("input_type")
+  required       Boolean       @default(false)
+  unit           String?
+  placeholder    String?
+  minValue       Decimal?      @map("min_value")
+  maxValue       Decimal?      @map("max_value")
+  decimalPlaces  Int?          @map("decimal_places")
+  displayOrder   Int           @default(0) @map("display_order")
+  showInTable    Boolean       @default(false) @map("show_in_table")
+  showInGraph    Boolean       @default(false) @map("show_in_graph")
+  active         Boolean       @default(true)
+  formVersion    FormVersion   @relation(fields: [formVersionId], references: [id], onDelete: Cascade)
+  options        FieldOption[]
+
+  @@unique([formVersionId, fieldKey])
+  @@map("form_fields")
+}
+
+model FieldOption {
+  id           String    @id @default(cuid())
+  formFieldId  String    @map("form_field_id")
+  value        String
+  label        String
+  displayOrder Int       @default(0) @map("display_order")
+  active       Boolean   @default(true)
+  formField    FormField @relation(fields: [formFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([formFieldId, value])
+  @@map("field_options")
+}
+
+model Submission {
+  id                      String       @id @default(cuid())
+  fieldModuleId           String       @map("field_module_id")
+  formVersionId           String       @map("form_version_id")
+  userId                  String       @map("user_id")
+  workDate                DateTime     @db.Date @map("work_date")
+  responseData            Json         @map("response_data")
+  confirmedByUserId       String       @map("confirmed_by_user_id")
+  confirmedAt             DateTime     @map("confirmed_at")
+  confirmationTextVersion Int          @default(1) @map("confirmation_text_version")
+  fieldModule             FieldModule  @relation(fields: [fieldModuleId], references: [id])
+  formVersion             FormVersion  @relation(fields: [formVersionId], references: [id])
+  user                    User         @relation("SubmissionOwner", fields: [userId], references: [id])
+  confirmedByUser         User         @relation("SubmissionConfirmer", fields: [confirmedByUserId], references: [id])
+  createdAt               DateTime     @default(now()) @map("created_at")
+  updatedAt               DateTime     @updatedAt @map("updated_at")
+  deletedAt               DateTime?    @map("deleted_at")
+
+  @@index([fieldModuleId, workDate])
+  @@index([formVersionId])
+  @@index([userId, workDate])
+  @@index([confirmedByUserId])
+  @@index([userId, fieldModuleId, deletedAt, createdAt(sort: Desc), id(sort: Desc)], map: "sub_self_order_idx")
+  @@index([fieldModuleId, deletedAt, createdAt(sort: Desc), id(sort: Desc)], map: "sub_field_order_idx")
+  @@index([deletedAt, createdAt(sort: Desc), id(sort: Desc)], map: "sub_admin_order_idx")
+  @@map("submissions")
+}
+
+model AuditLog {
+  id            String       @id @default(cuid())
+  actorUserId   String       @map("actor_user_id")
+  actorRole     Role         @map("actor_role")
+  action        String
+  entityType    String       @map("entity_type")
+  entityId      String       @map("entity_id")
+  fieldModuleId String?      @map("field_module_id")
+  oldValue      Json?        @map("old_value")
+  newValue      Json?        @map("new_value")
+  reason        String?
+  requestId     String?      @map("request_id")
+  actorUser     User         @relation("AuditActor", fields: [actorUserId], references: [id])
+  fieldModule   FieldModule? @relation(fields: [fieldModuleId], references: [id])
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  @@index([actorUserId], map: "audit_actor_user_idx")
+  @@index([fieldModuleId])
+  @@index([entityType, entityId, createdAt(sort: Desc), id(sort: Desc)], map: "audit_entity_order_idx")
+  @@index([createdAt(sort: Desc), id(sort: Desc)], map: "audit_order_idx")
+  @@map("audit_logs")
+}
