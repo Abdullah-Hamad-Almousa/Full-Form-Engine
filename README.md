@@ -1,3 +1,5 @@
+docker 5
+
 # Field Data Application
 
 Offline internal data-entry website built with React, TypeScript, Express, Prisma, PostgreSQL, Nginx, and Docker Compose. See the project blueprint in `Docker-Template.md` (governing documentation path is recorded in `AGENTS.md`).
